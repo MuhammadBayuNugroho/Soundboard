@@ -11,7 +11,24 @@ interface AdminProps {
   showToast: (msg: string, type: 'success' | 'error') => void;
 }
 
-export const Admin: React.FC<AdminProps> = ({ token, showToast }) => {
+// Convert file to Base64 helper
+const toBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        const base64String = reader.result.split(',')[1];
+        resolve(base64String);
+      } else {
+        reject(new Error('Gagal membaca file'));
+      }
+    };
+    reader.onerror = (error) => reject(error);
+  });
+};
+
+export const Admin: React.FC<AdminProps> = ({ showToast }) => {
   const { audios, refreshAudios } = useAudio();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingTrack, setEditingTrack] = useState<AudioTrack | null>(null);
@@ -25,6 +42,10 @@ export const Admin: React.FC<AdminProps> = ({ token, showToast }) => {
   const [shortcut, setShortcut] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const getAppsScriptUrl = () => {
+    return localStorage.getItem('sacp_apps_script_url') || '';
+  };
 
   const openAddModal = () => {
     setEditingTrack(null);
@@ -52,60 +73,64 @@ export const Admin: React.FC<AdminProps> = ({ token, showToast }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const apiUrl = getAppsScriptUrl();
+    if (!apiUrl) {
+      showToast('Konfigurasi URL Google Apps Script di tab Pengaturan terlebih dahulu!', 'error');
+      return;
+    }
+
     setLoading(true);
-
-    const config = {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    };
-
     try {
       if (editingTrack) {
-        // Edit metadata
-        await axios.put(`/api/audio/${editingTrack.id}`, {
+        // Edit metadata in Google Sheets
+        await axios.post(apiUrl, {
+          action: 'editAudio',
+          id: editingTrack.id,
           nama,
           kategori,
           volume,
           fade: fade ? 1 : 0,
           favorite: favorite ? 1 : 0,
           shortcut: shortcut || null
-        }, config);
+        }, {
+          headers: { 'Content-Type': 'text/plain' }
+        });
         
         showToast('Audio berhasil diperbarui!', 'success');
       } else {
-        // Add new audio
+        // Add new audio to Drive & Sheet
         if (!file) {
           showToast('Harap pilih file audio!', 'error');
           setLoading(false);
           return;
         }
 
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('nama', nama);
-        formData.append('kategori', kategori);
-        formData.append('volume', volume.toString());
-        formData.append('fade', (fade ? 1 : 0).toString());
-        formData.append('favorite', (favorite ? 1 : 0).toString());
-        if (shortcut) formData.append('shortcut', shortcut);
+        showToast('Mengompres dan mengunggah audio. Mohon tunggu...', 'success');
+        const fileBase64 = await toBase64(file);
 
-        const uploadConfig = {
-          headers: {
-            ...config.headers,
-            'Content-Type': 'multipart/form-data'
-          }
-        };
+        await axios.post(apiUrl, {
+          action: 'addAudio',
+          filename: file.name,
+          mime_type: file.type,
+          file_base64: fileBase64,
+          nama,
+          kategori,
+          volume,
+          fade: fade ? 1 : 0,
+          favorite: favorite ? 1 : 0,
+          shortcut: shortcut || null
+        }, {
+          headers: { 'Content-Type': 'text/plain' }
+        });
 
-        await axios.post('/api/audio', formData, uploadConfig);
-        showToast('Audio berhasil diunggah!', 'success');
+        showToast('Audio berhasil diunggah ke Google Drive!', 'success');
       }
       
       await refreshAudios();
       setModalOpen(false);
     } catch (err: any) {
       console.error(err);
-      const errMsg = err.response?.data?.error || 'Gagal menyimpan audio.';
+      const errMsg = err.response?.data?.error || 'Gagal menyimpan audio ke Google Sheets.';
       showToast(errMsg, 'error');
     } finally {
       setLoading(false);
@@ -113,14 +138,24 @@ export const Admin: React.FC<AdminProps> = ({ token, showToast }) => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Apakah Anda yakin ingin menghapus audio ini? File pada cache lokal dan master storage juga akan dihapus.')) {
+    const apiUrl = getAppsScriptUrl();
+    if (!apiUrl) {
+      showToast('Konfigurasi URL Google Apps Script di tab Pengaturan terlebih dahulu!', 'error');
+      return;
+    }
+
+    if (!window.confirm('Apakah Anda yakin ingin menghapus audio ini? File pada Google Drive master storage dan database Google Sheets juga akan dihapus.')) {
       return;
     }
 
     try {
-      await axios.delete(`/api/audio/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
+      await axios.post(apiUrl, {
+        action: 'deleteAudio',
+        id: id
+      }, {
+        headers: { 'Content-Type': 'text/plain' }
       });
+
       showToast('Audio berhasil dihapus!', 'success');
       await refreshAudios();
     } catch (err: any) {
@@ -133,8 +168,8 @@ export const Admin: React.FC<AdminProps> = ({ token, showToast }) => {
     <div className="p-6 bg-dark-bg min-h-full">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h2 className="text-xl font-bold text-slate-100">Katalog Audio</h2>
-          <p className="text-xs text-slate-400 mt-1">Kelola track soundboard, kategori, volume, dan shortcut</p>
+          <h2 className="text-xl font-bold text-slate-100">Katalog Audio (Serverless Sheets)</h2>
+          <p className="text-xs text-slate-400 mt-1">Kelola database audio, kategori, volume, dan shortcut di Google Sheet</p>
         </div>
         <button
           onClick={openAddModal}
@@ -164,7 +199,7 @@ export const Admin: React.FC<AdminProps> = ({ token, showToast }) => {
               {audios.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-6 py-10 text-center text-slate-500">
-                    Belum ada audio. Silakan klik tombol "TAMBAH AUDIO" untuk memulai.
+                    Belum ada audio terdaftar di Google Sheet. Silakan tambahkan audio!
                   </td>
                 </tr>
               ) : (
@@ -173,7 +208,7 @@ export const Admin: React.FC<AdminProps> = ({ token, showToast }) => {
                     <td className="px-6 py-4 font-semibold text-slate-200">
                       <div>
                         {track.nama}
-                        <span className="block text-[10px] text-slate-500 font-mono mt-0.5">{track.local_path}</span>
+                        <span className="block text-[10px] text-slate-500 font-mono mt-0.5">{track.drive_id}</span>
                       </div>
                     </td>
                     <td className="px-6 py-4">
@@ -251,7 +286,7 @@ export const Admin: React.FC<AdminProps> = ({ token, showToast }) => {
               {!editingTrack && (
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                    File Audio
+                    File Audio (Akan diupload ke Google Drive)
                   </label>
                   <input
                     type="file"
@@ -260,7 +295,6 @@ export const Admin: React.FC<AdminProps> = ({ token, showToast }) => {
                       const fileObj = e.target.files?.[0] || null;
                       setFile(fileObj);
                       if (fileObj && !nama) {
-                        // Auto fill name based on file
                         setNama(fileObj.name.replace(/\.[^/.]+$/, ""));
                       }
                     }}

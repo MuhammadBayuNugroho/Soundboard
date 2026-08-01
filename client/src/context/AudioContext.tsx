@@ -1,14 +1,13 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { Howl, Howler } from 'howler';
 import axios from 'axios';
-import { useSocket } from './SocketContext.js';
+import { useMqtt } from './MqttContext.js';
 
 export interface AudioTrack {
   id: string;
   drive_id: string | null;
   nama: string;
   kategori: 'Opening' | 'Mars' | 'Sholawat' | 'Efek' | 'Closing' | 'Instrument';
-  local_path: string;
   volume: number;
   fade: number; // 0 or 1
   favorite: number; // 0 or 1
@@ -40,6 +39,8 @@ interface AudioContextProps {
   toggleMute: () => void;
   refreshAudios: () => Promise<void>;
   isPreloaded: boolean;
+  preloadProgress: number; // 0 to 100
+  preloadStatusMsg: string;
 }
 
 const AudioContext = createContext<AudioContextProps | undefined>(undefined);
@@ -52,176 +53,223 @@ export const useAudio = () => {
   return context;
 };
 
+// Base64 helper
+function base64ToBlob(base64: string, mimeType: string = 'audio/mpeg'): Blob {
+  const byteCharacters = atob(base64);
+  const byteNumbers = new Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  return new Blob([byteArray], { type: mimeType });
+}
+
 export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { socket, role } = useSocket();
+  const { 
+    role, connected, publishCommand, publishStatus, 
+    registerCommandListener, registerStatusListener 
+  } = useMqtt();
+
   const [audios, setAudios] = useState<AudioTrack[]>([]);
   const [playbackState, setPlaybackState] = useState<Record<string, PlaybackStatus>>({});
   const [masterVolume, setMasterVolumeState] = useState(1.0);
   const [isMuted, setIsMuted] = useState(false);
   const [activeMainTrackId, setActiveMainTrackId] = useState<string | null>(null);
   const [isPreloaded, setIsPreloaded] = useState(false);
+  const [preloadProgress, setPreloadProgress] = useState(0);
+  const [preloadStatusMsg, setPreloadStatusMsg] = useState('Standby');
 
-  // Keep references to Howl instances (Desktop Player mode only)
   const howlsRef = useRef<Record<string, Howl>>({});
-  // Track active fade-out timeout to prevent overlaps
+  const objectUrlsRef = useRef<Record<string, string>>({});
   const fadeOutTimeoutRef = useRef<Record<string, any>>({});
-  // Interval for polling active audio play progress
   const progressIntervalRef = useRef<any>(null);
 
-  // Fetch audios list
+  const getAppsScriptUrl = () => {
+    return localStorage.getItem('sacp_apps_script_url') || '';
+  };
+
   const refreshAudios = async () => {
+    const apiParam = getAppsScriptUrl();
+    if (!apiParam) {
+      console.warn('Apps Script URL belum dikonfigurasi di Settings.');
+      return;
+    }
+
     try {
-      const res = await axios.get('/api/audio');
-      setAudios(res.data);
+      const res = await axios.get(`${apiParam}?action=getAudios`);
+      // Apps Script might return data directly or wrapped
+      const tracks: AudioTrack[] = Array.isArray(res.data) ? res.data : [];
+      setAudios(tracks);
       
-      // Initialize basic state map
       const initialStates: Record<string, PlaybackStatus> = {};
-      res.data.forEach((track: AudioTrack) => {
+      tracks.forEach((track) => {
         initialStates[track.id] = {
           playing: false,
           progress: 0,
           currentTime: 0,
-          duration: track.duration || 0
+          duration: Number(track.duration) || 0
         };
       });
       setPlaybackState(prev => {
-        // preserve existing playing states if refreshing
-        const updated = { ...initialStates };
+        const next = { ...initialStates };
         Object.keys(prev).forEach(id => {
-          if (updated[id]) updated[id] = prev[id];
+          if (next[id]) next[id] = prev[id];
         });
-        return updated;
+        return next;
       });
     } catch (err) {
-      console.error('Failed to load audios:', err);
+      console.error('Gagal memuat catalog audio:', err);
     }
   };
 
   useEffect(() => {
     refreshAudios();
-    
-    // Listen for changes from REST uploads / admin deletes
-    if (socket) {
-      socket.on('audio-changed', refreshAudios);
-      return () => {
-        socket.off('audio-changed', refreshAudios);
-      };
-    }
-  }, [socket]);
+  }, []);
 
   // ==========================================
-  // DESKTOP PLAYER LOGIC: PRELOAD & CONTROLS
+  // DESKTOP PLAYER: CACHE RETRIEVAL & PRELOAD
   // ==========================================
-  useEffect(() => {
+  const preloadAllCachedAudios = async () => {
     if (role !== 'player' || audios.length === 0) return;
-
-    console.log('Initializing Howler.js Player instances for audios...');
     
-    // Clean up existing howls
-    Object.values(howlsRef.current).forEach(howl => howl.unload());
-    howlsRef.current = {};
+    const apiParam = getAppsScriptUrl();
+    if (!apiParam) {
+      setPreloadStatusMsg('Error: Apps Script URL Kosong');
+      return;
+    }
 
+    setIsPreloaded(false);
+    setPreloadProgress(0);
+    setPreloadStatusMsg('Menyiapkan cache audio...');
+
+    // Clean up old Howler instances and URLs
+    Object.values(howlsRef.current).forEach(h => h.unload());
+    howlsRef.current = {};
+    Object.values(objectUrlsRef.current).forEach(url => URL.revokeObjectURL(url));
+    objectUrlsRef.current = {};
+
+    const cache = await caches.open('sacp-audio-cache');
     let loadedCount = 0;
 
-    audios.forEach((track) => {
-      // Resolve path
-      const srcUrl = `/cache/${encodeURIComponent(track.local_path)}`;
+    for (let i = 0; i < audios.length; i++) {
+      const track = audios[i];
+      const cacheKey = `/audio/${track.id}`;
       
-      const howl = new Howl({
-        src: [srcUrl],
-        format: [track.local_path.split('.').pop() || 'mp3'],
-        preload: true,
-        html5: false, // Use Web Audio API for latency < 50ms
-        volume: track.volume,
-        onload: () => {
-          loadedCount++;
-          const duration = howl.duration();
-          
-          // If duration in db is different or 0, update it on the server
-          if (Math.abs(track.duration - duration) > 0.1) {
-            axios.post(`/api/audio/${track.id}/duration`, { duration }).catch(err => {
-              console.error('Failed to save duration for:', track.nama, err);
-            });
-            // Update local track duration
-            setAudios(prev => prev.map(t => t.id === track.id ? { ...t, duration } : t));
-          }
+      setPreloadProgress(Math.round((i / audios.length) * 100));
+      setPreloadStatusMsg(`Memeriksa: ${track.nama}...`);
 
-          setPlaybackState(prev => ({
-            ...prev,
-            [track.id]: {
-              ...prev[track.id],
-              duration
-            }
-          }));
+      let audioBlob: Blob | null = null;
+      const cachedResponse = await cache.match(cacheKey);
 
-          if (loadedCount === audios.length) {
-            setIsPreloaded(true);
-            console.log('All audios preloaded successfully.');
-          }
-        },
-        onloaderror: (_id, err) => {
-          console.error(`Failed to preload audio: ${track.nama}`, err);
-          loadedCount++;
-          if (loadedCount === audios.length) {
-            setIsPreloaded(true);
-          }
-        },
-        onplay: () => {
-          setPlaybackState(prev => ({
-            ...prev,
-            [track.id]: {
-              ...prev[track.id],
-              playing: true
-            }
-          }));
-        },
-        onpause: () => {
-          setPlaybackState(prev => ({
-            ...prev,
-            [track.id]: {
-              ...prev[track.id],
-              playing: false
-            }
-          }));
-        },
-        onstop: () => {
-          setPlaybackState(prev => ({
-            ...prev,
-            [track.id]: {
-              ...prev[track.id],
-              playing: false,
-              progress: 0,
-              currentTime: 0
-            }
-          }));
-        },
-        onend: () => {
-          setPlaybackState(prev => ({
-            ...prev,
-            [track.id]: {
-              ...prev[track.id],
-              playing: false,
-              progress: 100,
-              currentTime: track.duration
-            }
-          }));
+      if (cachedResponse) {
+        audioBlob = await cachedResponse.blob();
+        console.log(`Cache HIT for: ${track.nama}`);
+      } else {
+        // Cache MISS: Fetch file from Drive via Apps Script base64 proxy to bypass CORS
+        try {
+          setPreloadStatusMsg(`Mengunduh ke browser: ${track.nama}...`);
+          const res = await axios.post(apiParam, {
+            action: 'downloadAudio',
+            id: track.drive_id
+          }, {
+            headers: { 'Content-Type': 'text/plain' }
+          });
           
-          // Clear active main track ID if BGM finishes playing
-          if (track.kategori !== 'Efek') {
-            setActiveMainTrackId(currentId => currentId === track.id ? null : currentId);
+          if (res.data && res.data.base64) {
+            audioBlob = base64ToBlob(res.data.base64);
+            // Save to Cache Storage API
+            await cache.put(cacheKey, new Response(audioBlob));
+            console.log(`Cached file locally in browser: ${track.nama}`);
           }
+        } catch (err) {
+          console.error(`Failed to fetch file for: ${track.nama}`, err);
         }
-      });
+      }
 
-      howlsRef.current[track.id] = howl;
-    });
+      if (audioBlob) {
+        const objectUrl = URL.createObjectURL(audioBlob);
+        objectUrlsRef.current[track.id] = objectUrl;
 
-    return () => {
-      Object.values(howlsRef.current).forEach(howl => howl.unload());
-    };
+        const howl = new Howl({
+          src: [objectUrl],
+          format: ['wav', 'mp3', 'ogg', 'm4a'],
+          preload: true,
+          html5: false, // Forces Web Audio API for latency < 50ms
+          volume: Number(track.volume) || 1.0,
+          onload: () => {
+            loadedCount++;
+            const duration = howl.duration();
+            
+            // If duration in Sheet is 0 or mismatch, update it
+            if (Math.abs(Number(track.duration) - duration) > 0.2) {
+              axios.post(apiParam, {
+                action: 'updateDuration',
+                id: track.id,
+                duration
+              }).catch(() => {});
+            }
+
+            setPlaybackState(prev => ({
+              ...prev,
+              [track.id]: { ...prev[track.id], duration }
+            }));
+
+            if (loadedCount === audios.length) {
+              setIsPreloaded(true);
+              setPreloadProgress(100);
+              setPreloadStatusMsg('Semua Audio Preloaded di RAM');
+            }
+          },
+          onloaderror: (_id, err) => {
+            console.error(`Preload error for ${track.nama}:`, err);
+            loadedCount++;
+            if (loadedCount === audios.length) {
+              setIsPreloaded(true);
+              setPreloadProgress(100);
+              setPreloadStatusMsg('Preload Selesai (Beberapa Error)');
+            }
+          },
+          onplay: () => {
+            setPlaybackState(prev => ({
+              ...prev,
+              [track.id]: { ...prev[track.id], playing: true }
+            }));
+          },
+          onpause: () => {
+            setPlaybackState(prev => ({
+              ...prev,
+              [track.id]: { ...prev[track.id], playing: false }
+            }));
+          },
+          onstop: () => {
+            setPlaybackState(prev => ({
+              ...prev,
+              [track.id]: { ...prev[track.id], playing: false, progress: 0, currentTime: 0 }
+            }));
+          },
+          onend: () => {
+            setPlaybackState(prev => ({
+              ...prev,
+              [track.id]: { ...prev[track.id], playing: false, progress: 100, currentTime: track.duration }
+            }));
+            if (track.kategori !== 'Efek') {
+              setActiveMainTrackId(curr => curr === track.id ? null : curr);
+            }
+          }
+        });
+
+        howlsRef.current[track.id] = howl;
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (role === 'player' && audios.length > 0) {
+      preloadAllCachedAudios();
+    }
   }, [role, audios.length]);
 
-  // Player progress polling interval
+  // Player progress reporter loop
   useEffect(() => {
     if (role !== 'player') return;
 
@@ -250,11 +298,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           Object.entries(updates).forEach(([id, upd]) => {
             next[id] = { ...next[id], ...upd };
           });
-          
-          // Broadcast playing progress to remote controls
-          if (socket) {
-            socket.emit('player-state-update', next);
-          }
+          publishStatus(next);
           return next;
         });
       }
@@ -263,66 +307,41 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => {
       if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
     };
-  }, [role, socket]);
+  }, [role, connected]);
 
-  // Listen to remote control commands (Player Role) or status updates (Remote Role)
+  // Realtime Command Listeners
   useEffect(() => {
-    if (!socket) return;
-
     if (role === 'player') {
-      // Listen to commands from mobile remotes
-      socket.on('play-audio', (data: { id: string }) => {
-        localPlay(data.id);
+      const removeListener = registerCommandListener((action, data) => {
+        if (action === 'play') localPlay(data.id);
+        else if (action === 'pause') localPause(data.id);
+        else if (action === 'stop') localStop(data.id);
+        else if (action === 'stopAll') localStopAll();
+        else if (action === 'setVolume') localSetVolume(data.id, data.volume);
+        else if (action === 'masterVolume') localSetMasterVolume(data.volume);
+        else if (action === 'mute') localMute(data.mute);
       });
-      socket.on('pause-audio', (data: { id: string }) => {
-        localPause(data.id);
-      });
-      socket.on('stop-audio', (data: { id: string }) => {
-        localStop(data.id);
-      });
-      socket.on('stop-all', () => {
-        localStopAll();
-      });
-      socket.on('set-volume', (data: { id: string; volume: number }) => {
-        localSetVolume(data.id, data.volume);
-      });
-      socket.on('master-volume', (data: { volume: number }) => {
-        localSetMasterVolume(data.volume);
-      });
-      socket.on('mute', (data: { mute: boolean }) => {
-        localMute(data.mute);
-      });
+      return removeListener;
     } else {
-      // Remote control role: sync state directly from player broadcasts
-      socket.on('player-state-update', (playerState: Record<string, PlaybackStatus>) => {
+      // Remote control: sync visual state from status publishes
+      const removeListener = registerStatusListener((playerState) => {
         setPlaybackState(playerState);
         
-        // Find if there is an active main track
-        let activeMainId: string | null = null;
+        let activeId: string | null = null;
         Object.entries(playerState).forEach(([id, status]) => {
           const track = audios.find(t => t.id === id);
           if (track && track.kategori !== 'Efek' && status.playing) {
-            activeMainId = id;
+            activeId = id;
           }
         });
-        setActiveMainTrackId(activeMainId);
+        setActiveMainTrackId(activeId);
       });
+      return removeListener;
     }
-
-    return () => {
-      socket.off('play-audio');
-      socket.off('pause-audio');
-      socket.off('stop-audio');
-      socket.off('stop-all');
-      socket.off('set-volume');
-      socket.off('master-volume');
-      socket.off('mute');
-      socket.off('player-state-update');
-    };
-  }, [role, socket, audios]);
+  }, [role, connected, audios]);
 
   // ==========================================
-  // PLAYBACK ACTION HANDLERS
+  // PLAYBACK ACTION IMPLEMENTATIONS
   // ==========================================
 
   const localPlay = (id: string) => {
@@ -330,85 +349,59 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const howl = howlsRef.current[id];
     if (!track || !howl) return;
 
-    // Check category: Efek (Sound Effect) vs Main Audio
     if (track.kategori === 'Efek') {
-      // Sound effect: can be played concurrently, does not interfere with BGM
       howl.play();
     } else {
-      // Main Audio category: Fade transitions required, no overlap
-      const previousId = activeMainTrackId;
-
-      if (previousId === id) {
-        // If clicked track is already playing, do nothing or replay
+      const prevId = activeMainTrackId;
+      if (prevId === id) {
         if (!howl.playing()) {
           howl.volume(0);
           howl.play();
-          howl.fade(0, track.volume, 1000); // fade in 1s
+          howl.fade(0, Number(track.volume) || 1.0, 1000);
         }
         return;
       }
 
-      // If another BGM is playing, fade it out first, then start the new one
-      if (previousId) {
-        const prevHowl = howlsRef.current[previousId];
-        const prevTrack = audios.find(t => t.id === previousId);
-        
+      if (prevId) {
+        const prevHowl = howlsRef.current[prevId];
         if (prevHowl && prevHowl.playing()) {
-          console.log(`Fading out main track: ${prevTrack?.nama}`);
-          prevHowl.fade(prevHowl.volume(), 0, 3000); // fade out 3s
+          prevHowl.fade(prevHowl.volume(), 0, 3000);
           
-          // Clear any pending triggers
-          if (fadeOutTimeoutRef.current[previousId]) {
-            clearTimeout(fadeOutTimeoutRef.current[previousId]);
-          }
-
-          // Delay playing the new track until the previous has fully faded out
-          // To ensure zero audio overlap
-          fadeOutTimeoutRef.current[previousId] = setTimeout(() => {
+          if (fadeOutTimeoutRef.current[prevId]) clearTimeout(fadeOutTimeoutRef.current[prevId]);
+          
+          fadeOutTimeoutRef.current[prevId] = setTimeout(() => {
             prevHowl.stop();
-            console.log(`Starting main track after fade-out: ${track.nama}`);
             howl.volume(0);
             howl.play();
-            howl.fade(0, track.volume, 1000); // fade in 1s
+            howl.fade(0, Number(track.volume) || 1.0, 1000);
             setActiveMainTrackId(id);
           }, 3000);
-          
           return;
         }
       }
 
-      // No previous track: play immediately with fade-in
-      console.log(`Playing main track: ${track.nama}`);
       howl.volume(0);
       howl.play();
-      howl.fade(0, track.volume, 1000); // fade in 1s
+      howl.fade(0, Number(track.volume) || 1.0, 1000);
       setActiveMainTrackId(id);
     }
   };
 
   const localPause = (id: string) => {
     const howl = howlsRef.current[id];
-    if (howl) {
-      howl.pause();
-    }
+    if (howl) howl.pause();
   };
 
   const localStop = (id: string) => {
     const howl = howlsRef.current[id];
-    if (howl) {
-      howl.stop();
-    }
-    // Handle BGM cleanup
+    if (howl) howl.stop();
     if (id === activeMainTrackId) {
       setActiveMainTrackId(null);
     }
   };
 
   const localStopAll = () => {
-    console.log('STOP ALL triggered locally');
-    // Stop all howlers
-    Object.values(howlsRef.current).forEach(howl => howl.stop());
-    // Clear timeouts
+    Object.values(howlsRef.current).forEach(h => h.stop());
     Object.values(fadeOutTimeoutRef.current).forEach(t => clearTimeout(t));
     fadeOutTimeoutRef.current = {};
     
@@ -426,7 +419,6 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const howl = howlsRef.current[id];
     if (howl) {
       howl.volume(vol);
-      // Update local listing volume value
       setAudios(prev => prev.map(t => t.id === id ? { ...t, volume: vol } : t));
     }
   };
@@ -442,62 +434,60 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   // ==========================================
-  // EXPOSED CONTROLLER TRIGGERS
+  // EXPOSED CONTROLLER FUNCTIONS
   // ==========================================
 
   const playAudio = (id: string) => {
     if (role === 'player') {
       localPlay(id);
-      // Broadcast playing state immediately
-      if (socket) socket.emit('trigger-play', { id });
+      publishCommand('play', { id });
     } else {
-      // Remote control emits to server
-      if (socket) socket.emit('trigger-play', { id });
+      publishCommand('play', { id });
     }
   };
 
   const pauseAudio = (id: string) => {
     if (role === 'player') {
       localPause(id);
-      if (socket) socket.emit('trigger-pause', { id });
+      publishCommand('pause', { id });
     } else {
-      if (socket) socket.emit('trigger-pause', { id });
+      publishCommand('pause', { id });
     }
   };
 
   const stopAudio = (id: string) => {
     if (role === 'player') {
       localStop(id);
-      if (socket) socket.emit('trigger-stop', { id });
+      publishCommand('stop', { id });
     } else {
-      if (socket) socket.emit('trigger-stop', { id });
+      publishCommand('stop', { id });
     }
   };
 
   const stopAll = () => {
     if (role === 'player') {
       localStopAll();
-      if (socket) socket.emit('trigger-stop-all');
+      publishCommand('stopAll');
     } else {
-      if (socket) socket.emit('trigger-stop-all');
+      publishCommand('stopAll');
     }
   };
 
   const setTrackVolume = (id: string, vol: number) => {
     if (role === 'player') {
       localSetVolume(id, vol);
-      if (socket) socket.emit('trigger-set-volume', { id, volume: vol });
+      publishCommand('setVolume', { id, volume: vol });
     } else {
-      if (socket) socket.emit('trigger-set-volume', { id, volume: vol });
+      publishCommand('setVolume', { id, volume: vol });
     }
   };
 
   const setMasterVolume = (vol: number) => {
     if (role === 'player') {
       localSetMasterVolume(vol);
-      if (socket) socket.emit('trigger-master-volume', { volume: vol });
+      publishCommand('masterVolume', { volume: vol });
     } else {
-      if (socket) socket.emit('trigger-master-volume', { volume: vol });
+      publishCommand('masterVolume', { volume: vol });
     }
   };
 
@@ -505,9 +495,9 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const nextMute = !isMuted;
     if (role === 'player') {
       localMute(nextMute);
-      if (socket) socket.emit('trigger-mute', { mute: nextMute });
+      publishCommand('mute', { mute: nextMute });
     } else {
-      if (socket) socket.emit('trigger-mute', { mute: nextMute });
+      publishCommand('mute', { mute: nextMute });
     }
   };
 
@@ -527,7 +517,9 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setMasterVolume,
         toggleMute,
         refreshAudios,
-        isPreloaded
+        isPreloaded,
+        preloadProgress,
+        preloadStatusMsg
       }}
     >
       {children}

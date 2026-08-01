@@ -3,7 +3,7 @@ import axios from 'axios';
 import { RefreshCw, Search, Calendar } from 'lucide-react';
 
 interface LogEntry {
-  id: number;
+  id?: number;
   timestamp: string;
   action: string;
   details: string | null;
@@ -15,10 +15,14 @@ export const Logs: React.FC = () => {
   const [loading, setLoading] = useState(false);
 
   const fetchLogs = async () => {
+    const api = localStorage.getItem('sacp_apps_script_url') || '';
+    if (!api) return;
+
     setLoading(true);
     try {
-      const res = await axios.get('/api/logs');
-      setLogs(res.data);
+      const res = await axios.get(`${api}?action=getLogs`);
+      const logsArray = Array.isArray(res.data) ? res.data : [];
+      setLogs(logsArray);
     } catch (err) {
       console.error('Failed to load logs:', err);
     } finally {
@@ -31,10 +35,14 @@ export const Logs: React.FC = () => {
   }, []);
 
   const formatTimestamp = (isoString: string) => {
-    const date = new Date(isoString);
-    const timeStr = date.toTimeString().split(' ')[0]; // HH:MM:SS
-    const dateStr = date.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit' });
-    return { dateStr, timeStr };
+    try {
+      const date = new Date(isoString);
+      const timeStr = date.toTimeString().split(' ')[0]; // HH:MM:SS
+      const dateStr = date.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit' });
+      return { dateStr, timeStr };
+    } catch (_) {
+      return { dateStr: '-', timeStr: '-' };
+    }
   };
 
   const filteredLogs = logs.filter(log => {
@@ -49,8 +57,8 @@ export const Logs: React.FC = () => {
     <div className="p-6 bg-dark-bg min-h-full flex flex-col gap-6 text-slate-200">
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-xl font-bold text-slate-100">Log Aktivitas</h2>
-          <p className="text-xs text-slate-400 mt-1">Daftar rekaman aktivitas operator dan kejadian sistem secara realtime</p>
+          <h2 className="text-xl font-bold text-slate-100">Log Aktivitas (Sheets)</h2>
+          <p className="text-xs text-slate-400 mt-1">Daftar rekaman aktivitas operator yang tersimpan di Google Sheet secara realtime</p>
         </div>
         <button
           onClick={fetchLogs}
@@ -97,18 +105,17 @@ export const Logs: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredLogs.map((log) => {
+                filteredLogs.map((log, idx) => {
                   const { dateStr, timeStr } = formatTimestamp(log.timestamp);
                   
-                  // Color highlights based on action name
                   let badgeColor = 'bg-slate-900 border-slate-700 text-slate-400';
                   if (log.action.includes('Add')) badgeColor = 'bg-blue-950 border-blue-900 text-blue-400';
                   else if (log.action.includes('Delete')) badgeColor = 'bg-red-950 border-red-900 text-red-400';
                   else if (log.action.includes('Sync')) badgeColor = 'bg-purple-950 border-purple-900 text-purple-400';
-                  else if (log.action.includes('Login')) badgeColor = 'bg-emerald-950 border-emerald-900 text-emerald-400';
+                  else if (log.action.includes('Edit')) badgeColor = 'bg-amber-950 border-amber-900 text-amber-400';
 
                   return (
-                    <tr key={log.id} className="hover:bg-dark-surface/60 transition-colors">
+                    <tr key={idx} className="hover:bg-dark-surface/60 transition-colors">
                       <td className="px-6 py-3.5 text-slate-400 flex items-center gap-1.5 whitespace-nowrap">
                         <Calendar className="w-3.5 h-3.5 text-slate-600" />
                         <span>{dateStr}</span>

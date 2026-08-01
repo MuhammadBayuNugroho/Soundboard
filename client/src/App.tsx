@@ -1,19 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Radio, Clock, Power, ShieldAlert, Library, RefreshCw, 
+  Radio, Clock, Library, RefreshCw, 
   Settings as SettingsIcon, ClipboardList, Laptop, Smartphone, 
-  LogOut, Star, CheckCircle, Database, LayoutDashboard
+  Star, CheckCircle, Database, LayoutDashboard
 } from 'lucide-react';
 import axios from 'axios';
 
-import { SocketProvider, useSocket } from './context/SocketContext.js';
+import { MqttProvider, useMqtt } from './context/MqttContext.js';
 import { AudioProvider, useAudio } from './context/AudioContext.js';
 import { Operator } from './pages/Operator.js';
 import { Admin } from './pages/Admin.js';
 import { Sync } from './pages/Sync.js';
 import { Logs } from './pages/Logs.js';
 import { Settings } from './pages/Settings.js';
-import { Login } from './pages/Login.js';
 
 interface ToastState {
   message: string;
@@ -21,21 +20,16 @@ interface ToastState {
 }
 
 const AppContent: React.FC = () => {
-  const { role, connected, deviceList, syncStatus, isMobileDevice } = useSocket();
+  const { role, connected, roomId, isMobileDevice } = useMqtt();
   const { audios, activeMainTrackId, playbackState, isPreloaded } = useAudio();
-
-  const [token, setToken] = useState<string | null>(
-    localStorage.getItem('sacp_token') || sessionStorage.getItem('sacp_token')
-  );
-  const [authLoading, setAuthLoading] = useState(true);
-  const [username, setUsername] = useState<string | null>(null);
   
-  // Tab State (Dashboard, Admin, Sinkronisasi, Log, Pengaturan)
+  // Tab State
   const [activeTab, setActiveTab] = useState<'operator' | 'admin' | 'sync' | 'logs' | 'settings'>('operator');
   const [showFavOnly, setShowFavOnly] = useState(false);
   const [time, setTime] = useState(new Date());
   const [toast, setToast] = useState<ToastState | null>(null);
   const [cacheInfo, setCacheInfo] = useState({ count: 0, sizeMb: 0 });
+  const [namaAcara, setNamaAcara] = useState('STAGE AUDIO CONTROL PANEL');
 
   // Clock tick
   useEffect(() => {
@@ -43,79 +37,46 @@ const AppContent: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch cache stats periodically for status cards
-  const fetchCacheStats = async () => {
-    if (!token) return;
+  // Fetch Event Name and cache stats on load
+  const loadGeneralStats = async () => {
+    const api = localStorage.getItem('sacp_apps_script_url');
+    if (!api) return;
+
     try {
-      const res = await axios.get('/api/sync/stats');
+      // 1. Fetch settings from Apps Script
+      const settingsRes = await axios.get(`${api}?action=getSettings`);
+      if (settingsRes.data && settingsRes.data.nama_acara) {
+        setNamaAcara(settingsRes.data.nama_acara);
+      }
+
+      // 2. Fetch cache size from browser Cache Storage API
+      const cache = await caches.open('sacp-audio-cache');
+      const keys = await cache.keys();
+      let totalBytes = 0;
+      for (const req of keys) {
+        const res = await cache.match(req);
+        if (res) {
+          const blob = await res.blob();
+          totalBytes += blob.size;
+        }
+      }
       setCacheInfo({
-        count: res.data.cachedFileCount,
-        sizeMb: res.data.cacheSizeMb
+        count: keys.length,
+        sizeMb: totalBytes / (1024 * 1024)
       });
     } catch (_) {}
   };
 
   useEffect(() => {
-    if (token) {
-      fetchCacheStats();
-      const interval = setInterval(fetchCacheStats, 10000); // refresh every 10s
-      return () => clearInterval(interval);
-    }
-  }, [token, activeTab]);
-
-  // Auth check on mount
-  useEffect(() => {
-    const verifyAuth = async () => {
-      if (!token) {
-        setAuthLoading(false);
-        return;
-      }
-
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      try {
-        const res = await axios.get('/api/auth/me');
-        setUsername(res.data.username);
-      } catch (err) {
-        console.error('Session expired');
-        handleLogout();
-      } finally {
-        setAuthLoading(false);
-      }
-    };
-
-    verifyAuth();
-  }, [token]);
+    loadGeneralStats();
+    const interval = setInterval(loadGeneralStats, 10000);
+    return () => clearInterval(interval);
+  }, [activeTab]);
 
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
   };
-
-  const handleLoginSuccess = (newToken: string) => {
-    setToken(newToken);
-    axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
-    axios.get('/api/auth/me').then(res => setUsername(res.data.username));
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('sacp_token');
-    sessionStorage.removeItem('sacp_token');
-    setToken(null);
-    setUsername(null);
-    delete axios.defaults.headers.common['Authorization'];
-  };
-
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-dark-bg flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-accent-blue border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  if (!token) {
-    return <Login onLoginSuccess={handleLoginSuccess} showToast={showToast} />;
-  }
 
   // Formatting Realtime clock
   const formattedTime = time.toLocaleTimeString('id-ID', {
@@ -124,8 +85,6 @@ const AppContent: React.FC = () => {
     second: '2-digit'
   });
 
-  const activeRemotes = deviceList.filter(d => d.role === 'remote').length;
-  const isSyncing = syncStatus?.status === 'syncing';
 
   // Render Page Content based on active tab
   const renderTabContent = () => {
@@ -133,20 +92,20 @@ const AppContent: React.FC = () => {
       case 'operator':
         return <Operator showFavoritesOnly={showFavOnly} />;
       case 'admin':
-        return <Admin token={token} showToast={showToast} />;
+        return <Admin token="" showToast={showToast} />;
       case 'sync':
-        return <Sync token={token} showToast={showToast} />;
+        return <Sync />;
       case 'logs':
         return <Logs />;
       case 'settings':
-        return <Settings token={token} showToast={showToast} />;
+        return <Settings token="" showToast={showToast} />;
       default:
         return <Operator showFavoritesOnly={showFavOnly} />;
     }
   };
 
   // ----------------------------------------------------
-  // MOBILE NAVIGATION LAYOUT (simplified remote UI)
+  // MOBILE NAVIGATION LAYOUT (independent player UI)
   // ----------------------------------------------------
   if (isMobileDevice || role === 'remote') {
     return (
@@ -155,16 +114,15 @@ const AppContent: React.FC = () => {
         <header className="bg-dark-surface border-b border-dark-border px-4 py-3 flex items-center justify-between sticky top-0 z-30">
           <div className="flex items-center gap-2">
             <Radio className="w-5 h-5 text-accent-orange animate-pulse" />
-            <h1 className="text-sm font-extrabold uppercase tracking-widest text-slate-100">SACP REMOTE</h1>
+            <h1 className="text-sm font-extrabold uppercase tracking-widest text-slate-100">{namaAcara}</h1>
           </div>
           
           <div className="flex items-center gap-2">
-            {/* Status indicator */}
             <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold ${
               connected ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'
             }`}>
               <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-400 animate-ping' : 'bg-red-400'}`} />
-              {connected ? 'CONNECTED' : 'DISCONNECTED'}
+              {connected ? 'MQTT ON' : 'MQTT OFF'}
             </span>
           </div>
         </header>
@@ -197,6 +155,16 @@ const AppContent: React.FC = () => {
           </button>
 
           <button
+            onClick={() => setActiveTab('admin')}
+            className={`flex flex-col items-center justify-center cursor-pointer transition-colors ${
+              activeTab === 'admin' ? 'text-accent-blue' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Library className="w-5 h-5" />
+            <span className="text-[9px] font-semibold mt-1 uppercase tracking-wider">Katalog</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('sync')}
             className={`flex flex-col items-center justify-center cursor-pointer transition-colors ${
               activeTab === 'sync' ? 'text-accent-blue' : 'text-slate-400 hover:text-slate-200'
@@ -204,16 +172,6 @@ const AppContent: React.FC = () => {
           >
             <RefreshCw className="w-5 h-5" />
             <span className="text-[9px] font-semibold mt-1 uppercase tracking-wider">Sync</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('logs')}
-            className={`flex flex-col items-center justify-center cursor-pointer transition-colors ${
-              activeTab === 'logs' ? 'text-accent-blue' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <ClipboardList className="w-5 h-5" />
-            <span className="text-[9px] font-semibold mt-1 uppercase tracking-wider">Log</span>
           </button>
 
           <button
@@ -259,7 +217,7 @@ const AppContent: React.FC = () => {
             </div>
             <div>
               <h1 className="text-sm font-black uppercase tracking-widest text-slate-100 leading-none">SACP</h1>
-              <span className="text-[10px] text-slate-400 font-bold">Studio Operator</span>
+              <span className="text-[10px] text-slate-400 font-bold">Serverless Stage</span>
             </div>
           </div>
 
@@ -301,11 +259,8 @@ const AppContent: React.FC = () => {
                 activeTab === 'sync' ? 'bg-accent-blue text-slate-100 shadow-md' : 'text-slate-400 hover:text-slate-200 hover:bg-dark-bg'
               }`}
             >
-              <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+              <RefreshCw className="w-4 h-4" />
               SINKRONISASI
-              {isSyncing && (
-                <span className="absolute right-3 w-2.5 h-2.5 rounded-full bg-orange-500 animate-ping" />
-              )}
             </button>
 
             <button
@@ -332,52 +287,42 @@ const AppContent: React.FC = () => {
 
         {/* Lower Sidebar Client Info */}
         <div className="p-4 border-t border-dark-border space-y-4">
-          {/* Active Devices Info */}
           <div className="bg-dark-bg border border-dark-border p-3.5 rounded-xl space-y-2 text-xs">
             <div className="font-bold text-slate-400 uppercase tracking-wider text-[10px] border-b border-dark-border pb-1.5 flex items-center gap-1.5">
               <Laptop className="w-3.5 h-3.5 text-accent-blue" />
-              Perangkat Terhubung
+              MQTT Signaling Room
             </div>
             
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-center text-slate-300">
-                <span className="flex items-center gap-1"><Laptop className="w-3 h-3 text-slate-500" /> Desktop Player</span>
-                <span className="font-bold text-[10px] px-1.5 py-0.2 rounded bg-slate-900 border border-slate-700 text-slate-300">
-                  {deviceList.some(d => d.role === 'player') ? 'AKTIF' : 'KOSONG'}
+            <div className="space-y-1.5 font-mono text-[10px] text-slate-300">
+              <div className="flex justify-between">
+                <span>Room ID:</span>
+                <span className="font-bold text-accent-orange">{roomId}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Status:</span>
+                <span className={connected ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
+                  {connected ? "CONNECTED" : "OFFLINE"}
                 </span>
               </div>
-              <div className="flex justify-between items-center text-slate-300">
-                <span className="flex items-center gap-1"><Smartphone className="w-3 h-3 text-slate-500" /> Mobile Remote</span>
-                <span className="font-bold text-accent-orange font-mono">{activeRemotes} unit</span>
+              <div className="flex justify-between">
+                <span>Peran:</span>
+                <span className="font-bold text-blue-400 uppercase">{role}</span>
               </div>
             </div>
-          </div>
-
-          {/* User Sign out */}
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400">Op: {username}</span>
-            <button
-              onClick={handleLogout}
-              className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 font-semibold cursor-pointer"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              LOGOUT
-            </button>
           </div>
         </div>
       </aside>
 
-      {/* Right Column Layout (Header + Content Cards + Page Content) */}
+      {/* Right Column Layout */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         
         {/* Header Dashboard */}
         <header className="bg-dark-surface border-b border-dark-border/60 px-6 py-4 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-4">
             <h2 className="text-sm font-extrabold uppercase tracking-widest text-slate-400">
-              STAGELINE AUDIO CONTROLLER
+              {namaAcara}
             </h2>
             
-            {/* Play status label */}
             {activeMainTrackId && (
               <span className="flex items-center gap-1.5 text-xs text-accent-green bg-accent-green/10 border border-emerald-500/20 px-3 py-1 rounded-full font-bold animate-pulse">
                 <CheckCircle className="w-3.5 h-3.5" /> BROADCASTING
@@ -386,20 +331,13 @@ const AppContent: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-6">
-            {/* Connection Status Badger */}
-            <div className="flex items-center gap-1.5">
-              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold ${
+            <div className="flex items-center gap-2">
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold ${
                 connected ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'
               }`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-400 animate-ping' : 'bg-red-400'}`} />
-                {connected ? 'ONLINE' : 'OFFLINE'}
+                {connected ? 'MQTT ACTIVE' : 'MQTT OFFLINE'}
               </span>
-
-              {isSyncing && (
-                <span className="inline-flex items-center gap-1 bg-purple-500/10 text-purple-400 border border-purple-500/20 px-2.5 py-0.5 rounded-full text-xs font-bold animate-pulse">
-                  SYNCING
-                </span>
-              )}
             </div>
 
             {/* Realtime Hour Clock */}
@@ -410,7 +348,7 @@ const AppContent: React.FC = () => {
           </div>
         </header>
 
-        {/* Dashboard Status Cards Deck (Hidden on sub-pages to save space) */}
+        {/* Dashboard Status Cards Deck */}
         {activeTab === 'operator' && (
           <div className="bg-dark-bg px-6 pt-6 grid grid-cols-5 gap-4 shrink-0">
             {/* Card: Audio Count */}
@@ -419,12 +357,12 @@ const AppContent: React.FC = () => {
                 <Library className="w-4 h-4" />
               </div>
               <div>
-                <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">Total Audio</span>
+                <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">Katalog Lagu</span>
                 <span className="text-sm font-extrabold text-slate-300">{audios.length} Track</span>
               </div>
             </div>
 
-            {/* Card: Category Count */}
+            {/* Card: Active Playing */}
             <div className="bg-dark-surface border border-dark-border/50 rounded-xl p-4 shadow flex items-center gap-3">
               <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg">
                 <Star className="w-4 h-4" />
@@ -437,15 +375,15 @@ const AppContent: React.FC = () => {
               </div>
             </div>
 
-            {/* Card: Cache Stats */}
+            {/* Card: Browser Cache Stats */}
             <div className="bg-dark-surface border border-dark-border/50 rounded-xl p-4 shadow flex items-center gap-3">
               <div className="p-2.5 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 rounded-lg">
                 <Database className="w-4 h-4" />
               </div>
               <div>
-                <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">Cache Lokal</span>
+                <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">Browser Sandbox Cache</span>
                 <span className="text-sm font-extrabold text-slate-300">
-                  {cacheInfo.count} file ({cacheInfo.sizeMb.toFixed(1)} MB)
+                  {cacheInfo.count} files ({cacheInfo.sizeMb.toFixed(1)} MB)
                 </span>
               </div>
             </div>
@@ -463,14 +401,14 @@ const AppContent: React.FC = () => {
               </div>
             </div>
 
-            {/* Card: Active Remotes Count */}
+            {/* Card: Connection Room */}
             <div className="bg-dark-surface border border-dark-border/50 rounded-xl p-4 shadow flex items-center gap-3">
               <div className="p-2.5 bg-orange-500/10 border border-orange-500/20 text-orange-400 rounded-lg">
                 <Smartphone className="w-4 h-4" />
               </div>
               <div>
-                <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">Remote Aktif</span>
-                <span className="text-sm font-extrabold text-slate-300">{activeRemotes} Perangkat</span>
+                <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">MQTT Room ID</span>
+                <span className="text-sm font-extrabold text-slate-300">{roomId}</span>
               </div>
             </div>
           </div>
@@ -499,10 +437,10 @@ const AppContent: React.FC = () => {
 
 export default function App() {
   return (
-    <SocketProvider>
+    <MqttProvider>
       <AudioProvider>
         <AppContent />
       </AudioProvider>
-    </SocketProvider>
+    </MqttProvider>
   );
 }
