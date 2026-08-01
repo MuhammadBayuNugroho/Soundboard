@@ -1,31 +1,23 @@
 import { create } from 'zustand'
-import type { DriveTrack, ActiveTrack, SyncProgress } from '../types'
+import type { LocalTrack, ActiveTrack } from '../types'
+import { getLocalTracks } from '../lib/db'
 
 // ============================================================
-// Zustand Global Store
+// Zustand Global Store (Simplified for Local Storage)
 // ============================================================
 
 interface AppState {
   // ── Auth ──────────────────────────────────────────────
   isLoggedIn: boolean
-  accessToken: string | null
-  userName: string
-  userAvatar: string
-  setAuth: (token: string, name: string, avatar: string) => void
-  clearAuth: () => void
+  setLoggedIn: (v: boolean) => void
 
-  // ── Tracks (dari Google Drive) ────────────────────────
-  driveTracks: DriveTrack[]
-  setDriveTracks: (tracks: DriveTrack[]) => void
-  addDriveTrack: (track: DriveTrack) => void
-  removeDriveTrack: (id: string) => void
-  updateDriveTrackName: (id: string, name: string) => void
-
-  // ── Cache status ──────────────────────────────────────
-  cachedTrackIds: Set<string>
-  setCachedTrackIds: (ids: Set<string>) => void
-  markAsCached: (id: string) => void
-  removeFromCache: (id: string) => void
+  // ── Tracks (IndexedDB Local) ──────────────────────────
+  tracks: LocalTrack[]
+  setTracks: (tracks: LocalTrack[]) => void
+  loadTracksFromDB: () => Promise<void>
+  addTrack: (track: LocalTrack) => void
+  removeTrack: (id: string) => void
+  renameTrackState: (id: string, name: string) => void
 
   // ── Active Playback ───────────────────────────────────
   activeTracks: Map<string, ActiveTrack>
@@ -37,70 +29,54 @@ interface AppState {
   setMasterVolume: (v: number) => void
 
   // ── UI State ──────────────────────────────────────────
-  isLocked: boolean            // true = mode pentas, false = mode edit
+  isLocked: boolean            // true = mode pentas (lock), false = mode edit
   toggleLock: () => void
-  syncProgress: SyncProgress
-  setSyncProgress: (p: Partial<SyncProgress>) => void
   isLoadingTracks: boolean
   setIsLoadingTracks: (v: boolean) => void
   isUploadModalOpen: boolean
   setUploadModalOpen: (v: boolean) => void
-  renamingTrackId: string | null
-  setRenamingTrackId: (id: string | null) => void
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
   // ── Auth ──────────────────────────────────────────────
-  isLoggedIn: false,
-  accessToken: null,
-  userName: '',
-  userAvatar: '',
-
-  setAuth: (token, name, avatar) =>
-    set({ isLoggedIn: true, accessToken: token, userName: name, userAvatar: avatar }),
-
-  clearAuth: () =>
-    set({
-      isLoggedIn: false,
-      accessToken: null,
-      userName: '',
-      userAvatar: '',
-      driveTracks: [],
-      activeTracks: new Map(),
-    }),
+  isLoggedIn: localStorage.getItem('soundboard_logged_in') === 'true',
+  setLoggedIn: (v) => {
+    localStorage.setItem('soundboard_logged_in', String(v))
+    set({ isLoggedIn: v })
+  },
 
   // ── Tracks ────────────────────────────────────────────
-  driveTracks: [],
-  setDriveTracks: (tracks) => set({ driveTracks: tracks }),
+  tracks: [],
+  setTracks: (tracks) => set({ tracks }),
 
-  addDriveTrack: (track) =>
-    set((s) => ({ driveTracks: [...s.driveTracks, track] })),
+  loadTracksFromDB: async () => {
+    set({ isLoadingTracks: true })
+    try {
+      const list = await getLocalTracks()
+      set({ tracks: list })
+    } catch (err) {
+      console.error('Gagal memuat list audio dari DB:', err)
+    } finally {
+      set({ isLoadingTracks: false })
+    }
+  },
 
-  removeDriveTrack: (id) =>
-    set((s) => ({ driveTracks: s.driveTracks.filter((t) => t.id !== id) })),
+  addTrack: (track) =>
+    set((s) => {
+      // Urutkan berdasarkan nama agar selalu rapi
+      const nextTracks = [...s.tracks, track].sort((a, b) => a.name.localeCompare(b.name))
+      return { tracks: nextTracks }
+    }),
 
-  updateDriveTrackName: (id, name) =>
+  removeTrack: (id) =>
+    set((s) => ({ tracks: s.tracks.filter((t) => t.id !== id) })),
+
+  renameTrackState: (id, name) =>
     set((s) => ({
-      driveTracks: s.driveTracks.map((t) => (t.id === id ? { ...t, name } : t)),
+      tracks: s.tracks
+        .map((t) => (t.id === id ? { ...t, name } : t))
+        .sort((a, b) => a.name.localeCompare(b.name)),
     })),
-
-  // ── Cache Status ──────────────────────────────────────
-  cachedTrackIds: new Set(),
-  setCachedTrackIds: (ids) => set({ cachedTrackIds: ids }),
-
-  markAsCached: (id) =>
-    set((s) => {
-      const next = new Set(s.cachedTrackIds)
-      next.add(id)
-      return { cachedTrackIds: next }
-    }),
-
-  removeFromCache: (id) =>
-    set((s) => {
-      const next = new Set(s.cachedTrackIds)
-      next.delete(id)
-      return { cachedTrackIds: next }
-    }),
 
   // ── Active Playback ───────────────────────────────────
   activeTracks: new Map(),
@@ -162,16 +138,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   isLocked: false,
   toggleLock: () => set((s) => ({ isLocked: !s.isLocked })),
 
-  syncProgress: { total: 0, done: 0, isRunning: false },
-  setSyncProgress: (p) =>
-    set((s) => ({ syncProgress: { ...s.syncProgress, ...p } })),
-
   isLoadingTracks: false,
   setIsLoadingTracks: (v) => set({ isLoadingTracks: v }),
 
   isUploadModalOpen: false,
   setUploadModalOpen: (v) => set({ isUploadModalOpen: v }),
-
-  renamingTrackId: null,
-  setRenamingTrackId: (id) => set({ renamingTrackId: id }),
 }))

@@ -1,28 +1,25 @@
 import React, { useEffect } from 'react'
 import { Header } from './components/Header'
 import { LoginScreen } from './components/LoginScreen'
-import { SyncStatusBar } from './components/SyncStatusBar'
 import { MasterControls } from './components/MasterControls'
 import { TrackGrid } from './components/TrackGrid'
 import { ActiveTracksSidebar } from './components/ActiveTracksSidebar'
 import { UploadModal } from './components/UploadModal'
-import { useGoogleAuth } from './hooks/useGoogleAuth'
-import { useSync } from './hooks/useSync'
+import { useLocalAuth } from './hooks/useLocalAuth'
 import { useAudioPlayer } from './hooks/useAudioPlayer'
 import { useAppStore } from './store/useAppStore'
 
 export const App: React.FC = () => {
-  const { login, logout, isLoggedIn } = useGoogleAuth()
-  const { refreshTrackList, syncWithDrive } = useSync()
+  const { loginWithPIN, logout, isLoggedIn } = useLocalAuth()
   const { togglePlay, stopTrack, stopAll, fadeOutTrack, fadeOutAll } = useAudioPlayer()
-  const {} = useAppStore()
+  const { loadTracksFromDB } = useAppStore()
 
-  // 1. Fetch file list dari Drive saat pertama kali login
+  // 1. Fetch file list dari local IndexedDB saat pertama kali login
   useEffect(() => {
     if (isLoggedIn) {
-      refreshTrackList()
+      loadTracksFromDB()
     }
-  }, [isLoggedIn])
+  }, [isLoggedIn, loadTracksFromDB])
 
   // 2. Setup Keyboard Shortcuts
   useEffect(() => {
@@ -59,7 +56,7 @@ export const App: React.FC = () => {
   }, [stopAll, fadeOutAll])
 
   if (!isLoggedIn) {
-    return <LoginScreen onLogin={login} />
+    return <LoginScreen onLoginWithPIN={loginWithPIN} />
   }
 
   return (
@@ -67,9 +64,6 @@ export const App: React.FC = () => {
       <Header onLogout={logout} />
 
       <main className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-6 p-4 md:p-6">
-        {/* Status Sinkronisasi */}
-        <SyncStatusBar onSync={syncWithDrive} />
-
         {/* Workspace Layout */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
           {/* Main Controls & Sound Deck (Grid Kiri) */}

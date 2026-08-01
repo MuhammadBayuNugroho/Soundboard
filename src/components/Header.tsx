@@ -7,10 +7,10 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
-  const { isLocked, toggleLock, userName, userAvatar } = useAppStore()
+  const { isLocked, toggleLock } = useAppStore()
 
   return (
-    <header className="sticky top-0 z-50 flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 bg-slate-900 px-6 py-4 shadow-xl">
+    <header className="sticky top-0 z-50 flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 bg-slate-900 px-6 py-4 shadow-xl select-none">
       <div className="flex items-center gap-3">
         <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/30">
           <Disc className="h-6 w-6 animate-spin" style={{ animationDuration: '6s' }} />
@@ -51,20 +51,12 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
 
         {/* User Info & Logout */}
         <div className="flex items-center gap-3 border-l border-slate-800 pl-4">
-          {userAvatar && (
-            <img
-              src={userAvatar}
-              alt={userName}
-              className="h-8 w-8 rounded-full border border-slate-700 object-cover"
-              referrerPolicy="no-referrer"
-            />
-          )}
-          <span className="hidden text-sm font-medium text-slate-300 sm:block max-w-[120px] truncate">
-            {userName}
+          <span className="hidden text-sm font-medium text-slate-300 sm:block">
+            Operator
           </span>
           <button
             onClick={onLogout}
-            title="Keluar"
+            title="Kunci Aplikasi"
             className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-red-400 transition-colors duration-150"
           >
             <LogOut className="h-4 w-4" />

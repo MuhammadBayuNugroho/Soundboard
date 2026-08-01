@@ -24,7 +24,7 @@ export function useAudioPlayer() {
       // 1. Ambil data dari IndexedDB
       const record = await db.tracks.get(trackId)
       if (!record) {
-        alert('File audio belum di-cache secara lokal! Silakan sync terlebih dahulu.')
+        alert('File audio tidak ditemukan di memori lokal.')
         return
       }
 

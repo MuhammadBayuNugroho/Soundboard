@@ -1,10 +1,10 @@
 import React, { useState } from 'react'
 import { Play, Square, Trash2, Edit2, CheckCircle2, AlertCircle, Check, X } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
-import type { DriveTrack } from '../types'
+import type { LocalTrack } from '../types'
 
 interface TrackCardProps {
-  track: DriveTrack
+  track: LocalTrack
   isPlaying: boolean
   isCached: boolean
   onTogglePlay: () => void

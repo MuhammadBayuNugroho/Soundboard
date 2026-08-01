@@ -1,42 +1,57 @@
 import React, { useState } from 'react'
 import { X, UploadCloud, FileAudio, Check } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
-import { uploadTrack } from '../lib/driveApi'
+import { saveLocalTrack } from '../lib/db'
 
 export const UploadModal: React.FC = () => {
-  const { isUploadModalOpen, setUploadModalOpen, addDriveTrack } = useAppStore()
+  const { isUploadModalOpen, setUploadModalOpen, addTrack } = useAppStore()
   const [isUploading, setIsUploading] = useState(false)
-  const [progress, setProgress] = useState(0)
   const [fileName, setFileName] = useState('')
   const [uploadSuccess, setUploadSuccess] = useState(false)
 
   if (!isUploadModalOpen) return null
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const files = e.target.files
+    if (!files || files.length === 0) return
 
-    setFileName(file.name)
     setIsUploading(true)
-    setProgress(0)
     setUploadSuccess(false)
 
     try {
-      const uploaded = await uploadTrack(file, (percent) => {
-        setProgress(percent)
-      })
-      addDriveTrack(uploaded)
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        setFileName(file.name)
+
+        const trackId = 'local_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5)
+        const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '')
+
+        const newTrack = {
+          id: trackId,
+          name: nameWithoutExt,
+          fileName: file.name,
+          mimeType: file.type,
+          size: file.size,
+          blob: file, // File adalah turunan dari Blob, bisa langsung disimpan ke IndexedDB
+          addedAt: new Date()
+        }
+
+        // Simpan ke IndexedDB
+        await saveLocalTrack(newTrack)
+        // Simpan ke Zustand Store
+        addTrack(newTrack)
+      }
+
       setUploadSuccess(true)
       setTimeout(() => {
-        // Auto-close modal after successful upload
         setUploadModalOpen(false)
         setFileName('')
         setIsUploading(false)
         setUploadSuccess(false)
-      }, 1200)
+      }, 1000)
     } catch (err) {
-      console.error('Upload error:', err)
-      alert('Gagal mengunggah file. Pastikan tipe file audio didukung (MP3/WAV/OGG).')
+      console.error('Failed to save file locally:', err)
+      alert('Gagal menyimpan file audio ke database lokal HP.')
       setIsUploading(false)
     }
   }
@@ -53,9 +68,9 @@ export const UploadModal: React.FC = () => {
           <X className="h-5 w-5" />
         </button>
 
-        <h3 className="mb-2 text-base font-bold text-slate-200">Tambah File Suara / Musik</h3>
+        <h3 className="mb-2 text-base font-bold text-slate-200">Tambah File Musik</h3>
         <p className="mb-6 text-xs text-slate-400">
-          Lagu akan diunggah langsung ke folder <strong className="text-indigo-400">TheaterSoundDeck</strong> di Google Drive Anda.
+          File musik akan disimpan langsung di memori lokal HP/Laptop Anda. Aplikasi bekerja 100% offline.
         </p>
 
         {/* Upload Box / Progress Area */}
@@ -67,6 +82,7 @@ export const UploadModal: React.FC = () => {
             <input
               type="file"
               accept="audio/*"
+              multiple
               className="hidden"
               onChange={handleFileChange}
             />
@@ -84,19 +100,9 @@ export const UploadModal: React.FC = () => {
             <div className="text-xs font-bold text-slate-300 truncate max-w-xs mb-1">
               {fileName}
             </div>
-            <div className="text-[10px] text-slate-500 mb-4">
-              {uploadSuccess ? 'Berhasil diunggah!' : `Mengunggah... ${progress}%`}
+            <div className="text-[10px] text-slate-500">
+              {uploadSuccess ? 'Berhasil disimpan!' : 'Menyimpan file audio...'}
             </div>
-
-            {/* Progress bar */}
-            {!uploadSuccess && (
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-                <div
-                  className="h-full bg-indigo-500 transition-all duration-150"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-            )}
           </div>
         )}
       </div>
