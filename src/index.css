@@ -1,0 +1,86 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-slate-950 text-slate-100 overscroll-none;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar       { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #0f172a; }
+  ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #475569; }
+}
+
+@layer components {
+  /* Playing glow animation for active track buttons */
+  .playing-glow {
+    @apply border-brand-500 animate-pulse-glow;
+  }
+
+  /* Large tap-friendly button base */
+  .btn-track {
+    @apply relative flex flex-col items-center justify-center gap-2
+           rounded-2xl border border-slate-700/80 bg-slate-800/90
+           p-4 text-center transition-all duration-150
+           active:scale-95 select-none cursor-pointer;
+    -webkit-user-select: none;
+    min-height: 120px;
+  }
+
+  .btn-track:hover {
+    @apply bg-slate-700/90 border-slate-600;
+  }
+
+  .btn-track.is-playing {
+    @apply playing-glow bg-brand-900/40 border-brand-500/70;
+  }
+
+  /* Panic / stop button */
+  .btn-panic {
+    @apply flex items-center justify-center gap-2 rounded-xl
+           bg-red-600 hover:bg-red-700 active:scale-95
+           px-5 py-3 font-bold text-white shadow-lg
+           shadow-red-600/30 transition-all duration-150 select-none;
+  }
+
+  /* Fade button */
+  .btn-fade {
+    @apply flex items-center justify-center gap-2 rounded-xl
+           bg-amber-600/20 hover:bg-amber-600/30 active:scale-95
+           border border-amber-500/40 px-4 py-2.5
+           font-medium text-amber-400 text-sm transition-all
+           duration-150 select-none;
+  }
+
+  /* Icon section badge */
+  .section-header {
+    @apply flex items-center justify-between mb-4 pb-3
+           border-b border-slate-800;
+  }
+
+  /* Pill badge */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5
+           text-xs font-semibold;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-slate-900/60 backdrop-blur-sm border border-slate-800/80;
+  }
+  
+  /* Remove number input arrows */
+  input[type=number]::-webkit-outer-spin-button,
+  input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
+}
