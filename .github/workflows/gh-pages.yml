@@ -20,7 +20,7 @@ jobs:
       - name: Install and Build 🔧
         run: |
           cd client
-          npm ci
+          npm install
           npm run build
 
       - name: Deploy 🚀
