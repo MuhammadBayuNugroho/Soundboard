@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Papan Suara & Pengatur Musik Pentas Teater</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @keyframes pulse-glow {
+
+            0%,
+            100% {
+                box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+            }
+
+            50% {
+                box-shadow: 0 0 25px rgba(239, 68, 68, 0.8);
+            }
+        }
+
+        .playing-glow {
+            animation: pulse-glow 1.5s infinite;
+        }
+
+        /* Custom Scrollbar for backstage dark theme */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+    </style>
+</head>
+
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans select-none">
+
+    <!-- Header / Top Bar -->
+    <header
+        class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-wrap items-center justify-between gap-4 sticky top-0 z-50 shadow-xl">
+        <div class="flex items-center gap-3">
+            <div class="p-2.5 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-600/30">
+                <i class="fa-solid font-bold fa-masks-theater text-2xl"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold tracking-wide text-white flex items-center gap-2">
+                    Theater Sound Deck
+                    <span
+                        class="text-xs bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded-full font-medium">Pro
+                        Operator</span>
+                </h1>
+                <p class="text-xs text-slate-400">Pengatur Musik & Efek Suara Pertunjukan Teater</p>
+            </div>
+        </div>
+
+        <!-- Master Controls -->
+        <div class="flex items-center gap-6">
+            <!-- Master Volume -->
+            <div class="flex items-center gap-3 bg-slate-800/80 px-4 py-2 rounded-xl border border-slate-700">
+                <i class="fa-solid fa-volume-high text-slate-400 text-sm" id="masterVolumeIcon"></i>
+                <div class="flex flex-col">
+                    <div class="flex justify-between text-[10px] text-slate-400 font-medium mb-1">
+                        <span>MASTER VOLUME</span>
+                        <span id="masterVolumeLabel">100%</span>
+                    </div>
+                    <input type="range" id="masterVolume" min="0" max="1" step="0.01" value="1"
+                        class="w-28 accent-indigo-500 h-1.5 bg-slate-700 rounded-lg cursor-pointer">
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <button id="btnFadeAll" onclick="fadeAll(3)"
+                class="flex items-center gap-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/40 px-4 py-2 rounded-xl transition font-medium text-sm">
+                <i class="fa-solid font-bold fa-water"></i> Fade Out (3s)
+            </button>
+
+            <button id="btnStopAll" onclick="stopAllSounds()"
+                class="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-red-600/30 transition transform active:scale-95 border border-red-500">
+                <i class="fa-solid fa-octagon-stop text-lg"></i> STOP ALL (PANIC)
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 p-6 grid grid-cols-1 lg:grid-cols-4 gap-6 max-w-[1800px] w-full mx-auto">
+
+        <!-- Left 3 Columns: Sound Trigger Decks -->
+        <div class="lg:col-span-3 space-y-8">
+
+            <!-- Built-in SFX Section -->
+            <section class="bg-slate-900/60 border border-slate-800/80 p-5 rounded-2xl backdrop-blur-sm">
+                <div class="flex items-center justify-between mb-4 pb-2 border-b border-slate-800">
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-bolt text-amber-400 text-lg"></i>
+                        <h2 class="font-bold text-lg text-slate-200">Efek Suara Instan (Built-in SFX)</h2>
+                    </div>
+                    <span class="text-xs text-slate-400 bg-slate-800 px-2.5 py-1 rounded-md">Tekan keyboard 1 - 8</span>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4" id="sfxGrid">
+                    <!-- Buttons generated dynamically in JS -->
+                </div>
+            </section>
+
+            <!-- Custom Playlists / Uploaded Audio Section -->
+            <section class="bg-slate-900/60 border border-slate-800/80 p-5 rounded-2xl backdrop-blur-sm">
+                <div class="flex flex-wrap items-center justify-between mb-4 pb-2 border-b border-slate-800 gap-3">
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-compact-disc text-indigo-400 text-lg"></i>
+                        <h2 class="font-bold text-lg text-slate-200">Musik & Sound Cue Pertunjukan</h2>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <label for="audioFileInput"
+                            class="cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-xl transition flex items-center gap-2 shadow-md shadow-indigo-600/20">
+                            <i class="fa-solid fa-plus"></i> Tambah File Suara/Musik
+                        </label>
+                        <input type="file" id="audioFileInput" multiple accept="audio/*" class="hidden"
+                            onchange="handleFileUpload(event)">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4" id="customTracksGrid">
+                    <!-- Custom uploaded tracks appear here -->
+                </div>
+
+                <div id="emptyCustomState" class="text-center py-10 border-2 border-dashed border-slate-800 rounded-xl">
+                    <i class="fa-solid fa-cloud-arrow-up text-4xl text-slate-600 mb-3"></i>
+                    <p class="text-slate-400 text-sm font-medium">Belum ada file musik/suara khusus teater yang
+                        diunggah.</p>
+                    <p class="text-slate-500 text-xs mt-1">Klik tombol <strong>"Tambah File Suara/Musik"</strong> di
+                        atas untuk memasukkan lagu drama (MP3/WAV/OGG).</p>
+                </div>
+            </section>
+
+        </div>
+
+        <!-- Right Column: Active Playing & Mixer Controls -->
+        <div class="space-y-6">
+
+            <!-- Currently Playing Panel -->
+            <section class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl sticky top-24">
+                <div class="flex items-center justify-between mb-4 pb-2 border-b border-slate-800">
+                    <h3 class="font-bold text-slate-200 flex items-center gap-2">
+                        <i class="fa-solid fa-sliders text-emerald-400"></i> Suara Aktif Diputar
+                    </h3>
+                    <span id="activeCountBadge"
+                        class="bg-emerald-500/20 text-emerald-400 text-xs px-2 py-0.5 rounded-full font-semibold">0
+                        Aktif</span>
+                </div>
+
+                <div id="activeTracksContainer" class="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                    <div id="noActiveTracks" class="text-center py-8 text-slate-500 text-xs italic">
+                        Tidak ada suara yang sedang diputar. Klik salah satu tombol di sebelah kiri.
+                    </div>
+                </div>
+
+                <!-- Cue Note / Shortcut Hints -->
+                <div class="mt-6 pt-4 border-t border-slate-800/80 text-xs text-slate-400 space-y-2">
+                    <p class="font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
+                        <i class="fa-solid fa-keyboard text-indigo-400"></i> Shortcut Keyboard:
+                    </p>
+                    <div class="grid grid-cols-2 gap-1.5 font-mono text-[11px]">
+                        <span class="bg-slate-800 px-2 py-1 rounded text-slate-300">1 - 8: SFX Instan</span>
+                        <span class="bg-slate-800 px-2 py-1 rounded text-slate-300">ESC / SPACE: Stop All</span>
+                        <span class="bg-slate-800 px-2 py-1 rounded text-slate-300">F: Fade Out All</span>
+                        <span class="bg-slate-800 px-2 py-1 rounded text-slate-300">Q - U: Track Utama</span>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900/40 border-t border-slate-800/60 py-3 px-6 text-center text-xs text-slate-500 mt-auto">
+        Papan Suara Pentas Teater &bull; Dirancang untuk Efisiensi Penata Suara Panggung
+    </footer>
+
+    <!-- Script logic -->
+    <script>
+        // Web Audio API Context for Built-in Synthesizer SFX
+        let audioCtx = null;
+        function getAudioContext() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            return audioCtx;
+        }
+
+        // Global Master Volume state
+        let globalMasterVolume = 1.0;
+        const activeTracksMap = new Map(); // id -> track metadata & controls
+
+        // Pre-defined Built-in SFX list (Synthesized Audio & Ambient generator)
+        const sfxList = [
+            { id: 'sfx_bell', name: 'Bel Teater / Gong', key: '1', icon: 'fa-bell', color: 'amber', type: 'synth', synthType: 'bell' },
+            { id: 'sfx_thunder', name: 'Petir / Guntur', key: '2', icon: 'fa-cloud-bolt', color: 'purple', type: 'synth', synthType: 'thunder' },
+            { id: 'sfx_applause', name: 'Tepuk Tangan', key: '3', icon: 'fa-hands-clapping', color: 'emerald', type: 'synth', synthType: 'applause' },
+            { id: 'sfx_knock', name: 'Ketukan Pintu', key: '4', icon: 'fa-door-closed', color: 'orange', type: 'synth', synthType: 'knock' },
+            { id: 'sfx_tension', name: 'Ketegangan / Suspense', key: '5', icon: 'fa-triangle-exclamation', color: 'red', type: 'synth', synthType: 'tension' },
+            { id: 'sfx_wind', name: 'Deru Angin Malam', key: '6', icon: 'fa-wind', color: 'cyan', type: 'synth', synthType: 'wind' },
+            { id: 'sfx_heartbeat', name: 'Detak Jantung', key: '7', icon: 'fa-heart-pulse', color: 'rose', type: 'synth', synthType: 'heartbeat' },
+            { id: 'sfx_footsteps', name: 'Langkah Kaki', key: '8', icon: 'fa-shoe-prints', color: 'stone', type: 'synth', synthType: 'footsteps' }
+        ];
+
+        // Custom Uploaded Tracks array
+        let customTracks = [];
+
+        // Initialize UI
+        document.addEventListener('DOMContentLoaded', () => {
+            renderSFXGrid();
+            setupMasterVolume();
+            setupKeyboardShortcuts();
+        });
+
+        // Master Volume Setup
+        function setupMasterVolume() {
+            const masterSlider = document.getElementById('masterVolume');
+            const masterLabel = document.getElementById('masterVolumeLabel');
+
+            masterSlider.addEventListener('input', (e) => {
+                globalMasterVolume = parseFloat(e.target.value);
+                masterLabel.textContent = Math.round(globalMasterVolume * 100) + '%';
+
+                // Update all active playing channels
+                activeTracksMap.forEach((track) => {
+                    if (track.gainNode) {
+                        track.gainNode.gain.setValueAtTime(track.volume * globalMasterVolume, getAudioContext().currentTime);
+                    } else if (track.audioElement) {
+                        track.audioElement.volume = track.volume * globalMasterVolume;
+                    }
+                });
+            });
+        }
+
+        // Render Built-In SFX Grid
+        function renderSFXGrid() {
+            const grid = document.getElementById('sfxGrid');
+            grid.innerHTML = sfxList.map(sfx => `
+        <button id="btn_${sfx.id}" onclick="triggerSound('${sfx.id}')" 
+          class="relative group bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700/80 hover:border-${sfx.color}-500/50 p-4 rounded-xl flex flex-col items-center text-center transition duration-200 transform active:scale-95 shadow-md">
+          <span class="absolute top-2 left-2 text-[10px] font-mono bg-slate-900/80 text-slate-400 px-1.5 py-0.5 rounded border border-slate-700">
+            ${sfx.key}
+          </span>
+          <div class="w-12 h-12 rounded-full bg-${sfx.color}-500/10 text-${sfx.color}-400 flex items-center justify-center text-xl mb-2 group-hover:scale-110 transition">
+            <i class="fa-solid ${sfx.icon}"></i>
+          </div>
+          <span class="font-semibold text-sm text-slate-200 line-clamp-1">${sfx.name}</span>
+          <span class="text-[10px] text-slate-400 mt-1">Efek Instan</span>
+        </button>
+      `).join('');
+        }
+
+        // Handle Custom File Uploads
+        function handleFileUpload(event) {
+            const files = Array.from(event.target.files);
+            if (files.length === 0) return;
+
+            const keyboardKeys = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'];
+
+            files.forEach((file, idx) => {
+                const keyAssigned = customTracks.length < keyboardKeys.length ? keyboardKeys[customTracks.length] : '';
+                const track = {
+                    id: 'custom_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                    name: file.name.replace(/\.[^/.]+$/, ""), // remove extension
+                    file: file,
+                    url: URL.createObjectURL(file),
+                    key: keyAssigned,
+                    isLooping: false,
+                    volume: 1.0,
+                    type: 'custom'
+                };
+                customTracks.push(track);
+            });
+
+            renderCustomTracks();
+            event.target.value = ''; // Reset input
+        }
+
+        // Render Custom Audio Tracks
+        function renderCustomTracks() {
+            const grid = document.getElementById('customTracksGrid');
+            const emptyState = document.getElementById('emptyCustomState');
+
+            if (customTracks.length === 0) {
+                emptyState.classList.remove('hidden');
+                grid.innerHTML = '';
+                return;
+            }
+
+            emptyState.classList.add('hidden');
+            grid.innerHTML = customTracks.map((track, index) => `
+        <div id="card_${track.id}" class="bg-slate-800/90 border border-slate-700/80 p-4 rounded-xl flex flex-col justify-between space-y-3 relative group shadow-md hover:border-indigo-500/50 transition">
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex items-center gap-2.5 overflow-hidden">
+              <div class="w-9 h-9 shrink-0 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold text-sm">
+                ${track.key || (index + 1)}
+              </div>
+              <div class="overflow-hidden">
+                <h4 class="font-semibold text-sm text-slate-200 truncate" title="${track.name}">${track.name}</h4>
+                <p class="text-[10px] text-slate-400">Audio File (.${track.file.name.split('.').pop()})</p>
+              </div>
+            </div>
+
+            <!-- Delete Track Button -->
+            <button onclick="removeCustomTrack('${track.id}')" class="text-slate-500 hover:text-red-400 p-1 text-xs transition" title="Hapus Track">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </div>
+
+          <!-- Controls Bar -->
+          <div class="flex items-center justify-between gap-2 pt-1 border-t border-slate-700/50">
+            <button id="playbtn_${track.id}" onclick="triggerCustomSound('${track.id}')" 
+                    class="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 px-3 rounded-lg text-xs flex items-center justify-center gap-1.5 transition active:scale-95 shadow">
+              <i class="fa-solid fa-play"></i> Putar Suara
+            </button>
+            
+            <button id="loopbtn_${track.id}" onclick="toggleLoop('${track.id}')" 
+                    class="p-2 rounded-lg text-xs border border-slate-700 ${track.isLooping ? 'bg-indigo-500/30 text-indigo-300 border-indigo-500/50' : 'bg-slate-900/50 text-slate-400'} transition" title="Ulangi (Looping)">
+              <i class="fa-solid fa-rotate-right"></i>
+            </button>
+          </div>
+        </div>
+      `).join('');
+        }
+
+        function removeCustomTrack(id) {
+            stopSingleSound(id);
+            customTracks = customTracks.filter(t => t.id !== id);
+            renderCustomTracks();
+        }
+
+        function toggleLoop(id) {
+            const track = customTracks.find(t => t.id === id);
+            if (track) {
+                track.isLooping = !track.isLooping;
+
+                // If actively playing, update live element
+                if (activeTracksMap.has(id)) {
+                    const active = activeTracksMap.get(id);
+                    if (active.audioElement) {
+                        active.audioElement.loop = track.isLooping;
+                    }
+                }
+                renderCustomTracks();
+            }
+        }
+
+        // Sound Trigger Router
+        function triggerSound(sfxId) {
+            const sfx = sfxList.find(s => s.id === sfxId);
+            if (!sfx) return;
+
+            // If already playing, stop or re-trigger
+            if (activeTracksMap.has(sfxId)) {
+                stopSingleSound(sfxId);
+            }
+
+            const ctx = getAudioContext();
+            const gainNode = ctx.createGain();
+            gainNode.gain.setValueAtTime(globalMasterVolume, ctx.currentTime);
+            gainNode.connect(ctx.destination);
+
+            let stopFn = () => { };
+
+            // Synthesize sound based on type
+            if (sfx.synthType === 'bell') stopFn = synthBell(ctx, gainNode);
+            else if (sfx.synthType === 'thunder') stopFn = synthThunder(ctx, gainNode);
+            else if (sfx.synthType === 'applause') stopFn = synthApplause(ctx, gainNode);
+            else if (sfx.synthType === 'knock') stopFn = synthKnock(ctx, gainNode);
+            else if (sfx.synthType === 'tension') stopFn = synthTension(ctx, gainNode);
+            else if (sfx.synthType === 'wind') stopFn = synthWind(ctx, gainNode);
+            else if (sfx.synthType === 'heartbeat') stopFn = synthHeartbeat(ctx, gainNode);
+            else if (sfx.synthType === 'footsteps') stopFn = synthFootsteps(ctx, gainNode);
+
+            registerActiveTrack({
+                id: sfx.id,
+                name: sfx.name,
+                type: 'synth',
+                gainNode: gainNode,
+                stopFn: stopFn,
+                volume: 1.0
+            });
+        }
+
+        function triggerCustomSound(trackId) {
+            const track = customTracks.find(t => t.id === trackId);
+            if (!track) return;
+
+            if (activeTracksMap.has(trackId)) {
+                // Toggle play/pause if already active
+                stopSingleSound(trackId);
+                return;
+            }
+
+            const audio = new Audio(track.url);
+            audio.volume = track.volume * globalMasterVolume;
+            audio.loop = track.isLooping;
+
+            audio.play().catch(e => console.error("Audio playback error:", e));
+
+            audio.onended = () => {
+                if (!audio.loop) {
+                    unregisterActiveTrack(trackId);
+                }
+            };
+
+            registerActiveTrack({
+                id: track.id,
+                name: track.name,
+                type: 'custom',
+                audioElement: audio,
+                volume: track.volume,
+                stopFn: () => {
+                    audio.pause();
+                    audio.currentTime = 0;
+                }
+            });
+        }
+
+        // Register active track to sidebar UI
+        function registerActiveTrack(trackData) {
+            activeTracksMap.set(trackData.id, trackData);
+
+            // Add glowing UI on button/card
+            const btnEl = document.getElementById(`btn_${trackData.id}`) || document.getElementById(`card_${trackData.id}`);
+            if (btnEl) btnEl.classList.add('playing-glow', 'border-indigo-500');
+
+            renderActiveTracksList();
+        }
+
+        function unregisterActiveTrack(id) {
+            if (activeTracksMap.has(id)) {
+                const track = activeTracksMap.get(id);
+                if (track.stopFn) track.stopFn();
+                activeTracksMap.delete(id);
+            }
+
+            const btnEl = document.getElementById(`btn_${id}`) || document.getElementById(`card_${id}`);
+            if (btnEl) btnEl.classList.remove('playing-glow', 'border-indigo-500');
+
+            renderActiveTracksList();
+        }
+
+        // Render Active Playing Tracks Side Panel
+        function renderActiveTracksList() {
+            const container = document.getElementById('activeTracksContainer');
+            const badge = document.getElementById('activeCountBadge');
+
+            badge.textContent = `${activeTracksMap.size} Aktif`;
+
+            if (activeTracksMap.size === 0) {
+                container.innerHTML = `
+          <div id="noActiveTracks" class="text-center py-8 text-slate-500 text-xs italic">
+            Tidak ada suara yang sedang diputar. Klik salah satu tombol di sebelah kiri.
+          </div>`;
+                return;
+            }
+
+            let html = '';
+            activeTracksMap.forEach((track) => {
+                html += `
+          <div class="bg-slate-800/90 border border-slate-700/80 p-3 rounded-xl flex flex-col space-y-2 text-xs">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2 overflow-hidden">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span class="font-semibold text-slate-200 truncate">${track.name}</span>
+              </div>
+              <button onclick="stopSingleSound('${track.id}')" class="text-slate-400 hover:text-red-400 p-1 transition" title="Hentikan Suara Ini">
+                <i class="fa-solid fa-xmark text-sm"></i>
+              </button>
+            </div>
+
+            <!-- Volume Slider & Fade Out Action -->
+            <div class="flex items-center justify-between gap-3 pt-1">
+              <div class="flex items-center gap-2 flex-1">
+                <i class="fa-solid fa-volume-low text-slate-400 text-[10px]"></i>
+                <input type="range" min="0" max="1" step="0.05" value="${track.volume}" 
+                       oninput="setTrackVolume('${track.id}', this.value)"
+                       class="w-full accent-emerald-500 h-1 bg-slate-700 rounded cursor-pointer">
+              </div>
+              <button onclick="fadeSingleSound('${track.id}', 2)" class="text-[10px] bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 px-2 py-1 rounded transition border border-amber-500/30">
+                Fade (2s)
+              </button>
+            </div>
+          </div>
+        `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        function setTrackVolume(id, volVal) {
+            const vol = parseFloat(volVal);
+            if (activeTracksMap.has(id)) {
+                const track = activeTracksMap.get(id);
+                track.volume = vol;
+                if (track.gainNode) {
+                    track.gainNode.gain.setValueAtTime(vol * globalMasterVolume, getAudioContext().currentTime);
+                } else if (track.audioElement) {
+                    track.audioElement.volume = vol * globalMasterVolume;
+                }
+            }
+        }
+
+        function stopSingleSound(id) {
+            unregisterActiveTrack(id);
+        }
+
+        function fadeSingleSound(id, duration = 2) {
+            if (!activeTracksMap.has(id)) return;
+            const track = activeTracksMap.get(id);
+
+            if (track.audioElement) {
+                const audio = track.audioElement;
+                const startVol = audio.volume;
+                const startTime = Date.now();
+
+                const fadeInterval = setInterval(() => {
+                    const elapsed = (Date.now() - startTime) / 1000;
+                    if (elapsed >= duration) {
+                        audio.volume = 0;
+                        clearInterval(fadeInterval);
+                        stopSingleSound(id);
+                    } else {
+                        audio.volume = Math.max(0, startVol * (1 - elapsed / duration));
+                    }
+                }, 50);
+            } else if (track.gainNode) {
+                const ctx = getAudioContext();
+                track.gainNode.gain.linearRampToValueAtTime(0.001, ctx.currentTime + duration);
+                setTimeout(() => stopSingleSound(id), duration * 1000);
+            }
+        }
+
+        // FADE OUT ALL ACTIVE SOUNDS
+        function fadeAll(duration = 3) {
+            activeTracksMap.forEach((_, id) => {
+                fadeSingleSound(id, duration);
+            });
+        }
+
+        // EMERGENCY STOP ALL SOUNDS (PANIC BUTTON)
+        function stopAllSounds() {
+            activeTracksMap.forEach((track, id) => {
+                if (track.stopFn) track.stopFn();
+            });
+            activeTracksMap.clear();
+
+            // Reset all trigger visual glows
+            document.querySelectorAll('.playing-glow').forEach(el => {
+                el.classList.remove('playing-glow', 'border-indigo-500');
+            });
+
+            renderActiveTracksList();
+        }
+
+        // KEYBOARD SHORTCUTS
+        function setupKeyboardShortcuts() {
+            window.addEventListener('keydown', (e) => {
+                // Prevent key triggers when user is typing inside input boxes
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+                const key = e.key.toUpperCase();
+
+                if (key === 'ESCAPE' || key === ' ') {
+                    e.preventDefault();
+                    stopAllSounds();
+                    return;
+                }
+
+                if (key === 'F') {
+                    fadeAll(3);
+                    return;
+                }
+
+                // Trigger Built-in SFX (1-8)
+                const matchedSfx = sfxList.find(s => s.key === key);
+                if (matchedSfx) {
+                    triggerSound(matchedSfx.id);
+                    return;
+                }
+
+                // Trigger Custom Tracks (Q-P)
+                const matchedCustom = customTracks.find(t => t.key === key);
+                if (matchedCustom) {
+                    triggerCustomSound(matchedCustom.id);
+                }
+            });
+        }
+
+        // ==========================================
+        // SYNTHESIZED SOUND EFFECTS (WEB AUDIO API)
+        // ==========================================
+
+        function synthBell(ctx, gainNode) {
+            const osc1 = ctx.createOscillator();
+            const osc2 = ctx.createOscillator();
+            osc1.type = 'sine';
+            osc2.type = 'sine';
+            osc1.frequency.setValueAtTime(440, ctx.currentTime); // A4
+            osc2.frequency.setValueAtTime(880, ctx.currentTime); // A5
+
+            gainNode.gain.setValueAtTime(globalMasterVolume, ctx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 3.5);
+
+            osc1.connect(gainNode);
+            osc2.connect(gainNode);
+            osc1.start();
+            osc2.start();
+            osc1.stop(ctx.currentTime + 3.5);
+            osc2.stop(ctx.currentTime + 3.5);
+
+            const timer = setTimeout(() => unregisterActiveTrack('sfx_bell'), 3500);
+            return () => {
+                clearTimeout(timer);
+                try { osc1.stop(); osc2.stop(); } catch (e) { }
+            };
+        }
+
+        function synthThunder(ctx, gainNode) {
+            const bufferSize = ctx.sampleRate * 3;
+            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = Math.random() * 2 - 1;
+            }
+
+            const noise = ctx.createBufferSource();
+            noise.buffer = buffer;
+
+            const filter = ctx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(120, ctx.currentTime);
+            filter.frequency.linearRampToValueAtTime(40, ctx.currentTime + 3);
+
+            gainNode.gain.setValueAtTime(globalMasterVolume * 1.5, ctx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 3);
+
+            noise.connect(filter);
+            filter.connect(gainNode);
+            noise.start();
+            noise.stop(ctx.currentTime + 3);
+
+            const timer = setTimeout(() => unregisterActiveTrack('sfx_thunder'), 3000);
+            return () => {
+                clearTimeout(timer);
+                try { noise.stop(); } catch (e) { }
+            };
+        }
+
+        function synthApplause(ctx, gainNode) {
+            const bufferSize = ctx.sampleRate * 4;
+            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 0.5);
+            }
+
+            const noise = ctx.createBufferSource();
+            noise.buffer = buffer;
+
+            const filter = ctx.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.setValueAtTime(1000, ctx.currentTime);
+            filter.Q.setValueAtTime(1, ctx.currentTime);
+
+            gainNode.gain.setValueAtTime(0.01, ctx.currentTime);
+            gainNode.gain.linearRampToValueAtTime(globalMasterVolume * 0.8, ctx.currentTime + 0.5);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 4);
+
+            noise.connect(filter);
+            filter.connect(gainNode);
+            noise.start();
+            noise.stop(ctx.currentTime + 4);
+
+            const timer = setTimeout(() => unregisterActiveTrack('sfx_applause'), 4000);
+            return () => {
+                clearTimeout(timer);
+                try { noise.stop(); } catch (e) { }
+            };
+        }
+
+        function synthKnock(ctx, gainNode) {
+            const times = [0, 0.15, 0.3];
+            times.forEach(t => {
+                const osc = ctx.createOscillator();
+                const subGain = ctx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(150, ctx.currentTime + t);
+                osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + t + 0.08);
+
+                subGain.gain.setValueAtTime(globalMasterVolume, ctx.currentTime + t);
+                subGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.08);
+
+                osc.connect(subGain);
+                subGain.connect(gainNode);
+                osc.start(ctx.currentTime + t);
+                osc.stop(ctx.currentTime + t + 0.08);
+            });
+
+            const timer = setTimeout(() => unregisterActiveTrack('sfx_knock'), 600);
+            return () => clearTimeout(timer);
+        }
+
+        function synthTension(ctx, gainNode) {
+            const osc = ctx.createOscillator();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(100, ctx.currentTime);
+            osc.frequency.linearRampToValueAtTime(450, ctx.currentTime + 3.5);
+
+            const filter = ctx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(200, ctx.currentTime);
+            filter.frequency.linearRampToValueAtTime(2000, ctx.currentTime + 3.5);
+
+            gainNode.gain.setValueAtTime(0.01, ctx.currentTime);
+            gainNode.gain.linearRampToValueAtTime(globalMasterVolume * 0.9, ctx.currentTime + 3);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 4);
+
+            osc.connect(filter);
+            filter.connect(gainNode);
+            osc.start();
+            osc.stop(ctx.currentTime + 4);
+
+            const timer = setTimeout(() => unregisterActiveTrack('sfx_tension'), 4000);
+            return () => {
+                clearTimeout(timer);
+                try { osc.stop(); } catch (e) { }
+            };
+        }
+
+        function synthWind(ctx, gainNode) {
+            const bufferSize = ctx.sampleRate * 5;
+            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = Math.random() * 2 - 1;
+            }
+
+            const noise = ctx.createBufferSource();
+            noise.buffer = buffer;
+
+            const filter = ctx.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.setValueAtTime(300, ctx.currentTime);
+            filter.frequency.linearRampToValueAtTime(600, ctx.currentTime + 2.5);
+            filter.frequency.linearRampToValueAtTime(250, ctx.currentTime + 5);
+
+            gainNode.gain.setValueAtTime(0.01, ctx.currentTime);
+            gainNode.gain.linearRampToValueAtTime(globalMasterVolume * 0.7, ctx.currentTime + 1.5);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 5);
+
+            noise.connect(filter);
+            filter.connect(gainNode);
+            noise.start();
+            noise.stop(ctx.currentTime + 5);
+
+            const timer = setTimeout(() => unregisterActiveTrack('sfx_wind'), 5000);
+            return () => {
+                clearTimeout(timer);
+                try { noise.stop(); } catch (e) { }
+            };
+        }
+
+        function synthHeartbeat(ctx, gainNode) {
+            const beats = [0, 0.18, 0.8, 0.98, 1.6, 1.78];
+            beats.forEach(t => {
+                const osc = ctx.createOscillator();
+                const subGain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(60, ctx.currentTime + t);
+                osc.frequency.exponentialRampToValueAtTime(20, ctx.currentTime + t + 0.12);
+
+                subGain.gain.setValueAtTime(globalMasterVolume * 1.2, ctx.currentTime + t);
+                subGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.12);
+
+                osc.connect(subGain);
+                subGain.connect(gainNode);
+                osc.start(ctx.currentTime + t);
+                osc.stop(ctx.currentTime + t + 0.12);
+            });
+
+            const timer = setTimeout(() => unregisterActiveTrack('sfx_heartbeat'), 2200);
+            return () => clearTimeout(timer);
+        }
+
+        function synthFootsteps(ctx, gainNode) {
+            const steps = [0, 0.4, 0.8, 1.2];
+            steps.forEach(t => {
+                const bufferSize = ctx.sampleRate * 0.08;
+                const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+
+                const noise = ctx.createBufferSource();
+                noise.buffer = buffer;
+
+                const filter = ctx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(400, ctx.currentTime + t);
+
+                const subGain = ctx.createGain();
+                subGain.gain.setValueAtTime(globalMasterVolume * 0.8, ctx.currentTime + t);
+                subGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.08);
+
+                noise.connect(filter);
+                filter.connect(subGain);
+                subGain.connect(gainNode);
+
+                noise.start(ctx.currentTime + t);
+                noise.stop(ctx.currentTime + t + 0.08);
+            });
+
+            const timer = setTimeout(() => unregisterActiveTrack('sfx_footsteps'), 1600);
+            return () => clearTimeout(timer);
+        }
+    </script>
+</body>
+
+</html>
