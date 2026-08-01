@@ -33,7 +33,9 @@ export const Sync: React.FC = () => {
   const [processedCount, setProcessedCount] = useState(0);
 
   const getAppsScriptUrl = () => {
-    return localStorage.getItem('sacp_apps_script_url') || '';
+    return localStorage.getItem('sacp_apps_script_url') || 
+           (import.meta.env.VITE_APPS_SCRIPT_URL as string) || 
+           'https://script.google.com/macros/s/AKfycbwb2X-DYIZYIB6w1sVGbbu7D6Wqw79ZUgRWX0OAMXTCvqwD3D5JfyQw0fyHZyeybvPgyQ/exec';
   };
 
   const fetchStats = async () => {

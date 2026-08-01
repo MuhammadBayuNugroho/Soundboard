@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Save, Settings2, Sliders, Cloud, Laptop, Smartphone, KeyRound } from 'lucide-react';
+import { Settings2, Sliders, Cloud, Laptop, Smartphone } from 'lucide-react';
 import { useMqtt } from '../context/MqttContext.js';
 
 interface SettingsProps {
@@ -13,7 +13,9 @@ export const Settings: React.FC<SettingsProps> = ({ showToast }) => {
   
   const [namaAcara, setNamaAcara] = useState('STAGE AUDIO CONTROL PANEL');
   const [appsScriptUrl, setAppsScriptUrl] = useState(() => {
-    return localStorage.getItem('sacp_apps_script_url') || '';
+    return localStorage.getItem('sacp_apps_script_url') || 
+           (import.meta.env.VITE_APPS_SCRIPT_URL as string) || 
+           'https://script.google.com/macros/s/AKfycbwb2X-DYIZYIB6w1sVGbbu7D6Wqw79ZUgRWX0OAMXTCvqwD3D5JfyQw0fyHZyeybvPgyQ/exec';
   });
   const [mqttRoomInput, setMqttRoomInput] = useState(roomId);
   const [volumeDefault, setVolumeDefault] = useState(1.0);

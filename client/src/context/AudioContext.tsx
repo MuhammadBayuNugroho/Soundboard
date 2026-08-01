@@ -85,7 +85,9 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const progressIntervalRef = useRef<any>(null);
 
   const getAppsScriptUrl = () => {
-    return localStorage.getItem('sacp_apps_script_url') || '';
+    return localStorage.getItem('sacp_apps_script_url') || 
+           (import.meta.env.VITE_APPS_SCRIPT_URL as string) || 
+           'https://script.google.com/macros/s/AKfycbwb2X-DYIZYIB6w1sVGbbu7D6Wqw79ZUgRWX0OAMXTCvqwD3D5JfyQw0fyHZyeybvPgyQ/exec';
   };
 
   const refreshAudios = async () => {
@@ -330,7 +332,8 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         let activeId: string | null = null;
         Object.entries(playerState).forEach(([id, status]) => {
           const track = audios.find(t => t.id === id);
-          if (track && track.kategori !== 'Efek' && status.playing) {
+          const currentStatus = status as PlaybackStatus;
+          if (track && track.kategori !== 'Efek' && currentStatus.playing) {
             activeId = id;
           }
         });

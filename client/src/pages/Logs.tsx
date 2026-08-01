@@ -15,8 +15,9 @@ export const Logs: React.FC = () => {
   const [loading, setLoading] = useState(false);
 
   const fetchLogs = async () => {
-    const api = localStorage.getItem('sacp_apps_script_url') || '';
-    if (!api) return;
+    const api = localStorage.getItem('sacp_apps_script_url') || 
+                (import.meta.env.VITE_APPS_SCRIPT_URL as string) || 
+                'https://script.google.com/macros/s/AKfycbwb2X-DYIZYIB6w1sVGbbu7D6Wqw79ZUgRWX0OAMXTCvqwD3D5JfyQw0fyHZyeybvPgyQ/exec';
 
     setLoading(true);
     try {
